@@ -209,7 +209,7 @@ OctomapServer::~OctomapServer(){
 bool OctomapServer::openFile(const std::string& filename){
   if (filename.length() <= 3)
     return false;
-
+  
   std::string suffix = filename.substr(filename.length()-3, 3);
   if (suffix== ".bt"){
     if (!m_octree->readBinary(filename)){
@@ -234,6 +234,37 @@ bool OctomapServer::openFile(const std::string& filename){
     return false;
   }
 
+  
+  std::vector<OcTreeKey> to_be_removed;
+  for (OcTreeT::tree_iterator it = m_octree->begin_tree(m_maxTreeDepth),
+         end = m_octree->end_tree(); it != end; ++it) {
+    
+    double x = it.getX();
+    double y = it.getY();
+    double z = it.getZ();
+    
+    bool tbr = false;
+    if ( x < m_pointcloudMinX || x > m_pointcloudMaxX ) { 
+      tbr = true;
+    }
+    
+    if ( y < m_pointcloudMinY || y > m_pointcloudMaxY ) {
+      tbr = true;
+    }
+    
+    if ( z < m_pointcloudMinZ || z > m_pointcloudMaxZ ) {
+      tbr = true;
+    }
+    
+    if (tbr) {
+      to_be_removed.push_back(it.getKey());
+    }
+  }
+  
+  for (int i = 0; i < (int) to_be_removed.size(); i++) {
+    m_octree->deleteNode(to_be_removed.at(i));
+  }
+  
   ROS_INFO("Octomap file %s loaded (%zu nodes).", filename.c_str(),m_octree->size());
 
   m_treeDepth = m_octree->getTreeDepth();
@@ -527,7 +558,10 @@ void OctomapServer::publishAll(const ros::Time& rostime){
 
     if (m_octree->isNodeOccupied(*it)){
       double z = it.getZ();
-      if (z > m_occupancyMinZ && z < m_occupancyMaxZ)
+
+
+      // Editing this to allow plotting of entire tree  
+      //      if (z > m_occupancyMinZ && z < m_occupancyMaxZ)
       {
         double size = it.getSize();
         double x = it.getX();
@@ -538,17 +572,19 @@ void OctomapServer::publishAll(const ros::Time& rostime){
         int b = it->getColor().b;
 #endif
 
-        // Ignore speckles in the map:
-        if (m_filterSpeckles && (it.getDepth() == m_treeDepth +1) && isSpeckleNode(it.getKey())){
-          ROS_DEBUG("Ignoring single speckle at (%f,%f,%f)", x, y, z);
-          continue;
-        } // else: current octree node is no speckle, send it out
+        if (z > m_occupancyMinZ && z < m_occupancyMaxZ) {
+          // Ignore speckles in the map:
+          if (m_filterSpeckles && (it.getDepth() == m_treeDepth +1) && isSpeckleNode(it.getKey())){
+            ROS_DEBUG("Ignoring single speckle at (%f,%f,%f)", x, y, z);
+            continue;
+          } // else: current octree node is no speckle, send it out
 
-        handleOccupiedNode(it);
-        if (inUpdateBBX)
-          handleOccupiedNodeInBBX(it);
-
-
+          handleOccupiedNode(it);
+          if (inUpdateBBX) {
+            handleOccupiedNodeInBBX(it);
+          }
+        }
+        
         //create marker:
         if (publishMarkerArray){
           unsigned idx = it.getDepth();
